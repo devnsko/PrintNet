@@ -46,18 +46,39 @@ router.get('/jobs/:id', async (req: Request, res: Response) => {
     }
 });
 
+
+router.get('/printers/:id/queue/list', async (req: Request, res: Response) => {
+  const id = req.params.id as string;
+  const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+  if (!uuidRegex.test(id)) return res.status(400).json({ error: 'Invalid id (must be UUID)' });
+    
+  try {
+    const list = await pool.query(`
+      SELECT * FROM jobs as j 
+      WHERE j.id IN (SELECT job_id FROM queue_jobs AS qj 
+      WHERE qj.queue_id = (SELECT q.id FROM queues AS q WHERE printer_id = $1))
+      `, [id]);
+    return res.status(200).json(list.rows);
+  } catch (error) {
+    console.error('Error deleting queue:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+})
+
 // Create job
-router.post('/jobs', async (req: Request, res: Response) => {
+// or /jobs endpoint
+router.post('/printers/:id/queue/add', async (req: Request, res: Response) => {
+    const printer_id = req.params.id as string;
+    const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+    
     const body = (req.body || {}) as {
         model_id?: string;
-        printer_id?: string;
         user_id?: string;
         filament?: string | null;
         estimated_time?: number | null;
     };
 
-    const { model_id, printer_id, user_id } = body;
-    const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+    const { model_id, user_id } = body;
 
     if (!model_id || !printer_id || !user_id) {
         return res.status(400).json({ error: 'Missing required fields: model_id, printer_id, user_id' });

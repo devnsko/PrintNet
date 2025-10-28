@@ -14,6 +14,26 @@ router.get('/queues', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/printers/:id/queue', async (req: Request, res: Response) => {
+  const id = req.params.id as string;
+  const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+  if (!uuidRegex.test(id)) return res.status(400).json({ error: 'Invalid id (must be UUID)' });
+    
+  try {
+    const queue = await pool.query('SELECT * FROM queues as q WHERE q.printer_id = (SELECT p.id FROM printers AS p WHERE p.id = $1)' , [id]);
+    if(queue.rows.length === 0) {
+      const newQueue = await pool.query(`
+        INSERT INTO queues (printer_id) VALUES ($1) RETURNING *`,
+      [id]);
+      return res.status(201).json(newQueue.rows[0]);
+    } 
+    res.status(200).json(queue.rows[0]);
+  } catch (error) {
+    console.error('Error deleting queue:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+})
+
 router.get('/queues/:id', async (req: Request, res: Response) => {
   const id = req.params.id as string;
   const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;

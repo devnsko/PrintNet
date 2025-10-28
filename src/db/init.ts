@@ -9,6 +9,17 @@ async function initializeDatabase() {
     // Enable uuid generation functions (no-op if already enabled)
     await client.query("CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";");
 
+    // Auth 
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS auth (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          email TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          nickname TEXT,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+
     // Users first
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -33,6 +44,18 @@ async function initializeDatabase() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS filaments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        material TEXT,
+        color TEXT,
+        nozzle_temp INTEGER,
+        bed_temp INTEGER,
+        speed_multiplier INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
     // Printers (may reference jobs later)
     await client.query(`
       CREATE TABLE IF NOT EXISTS printers (
@@ -54,7 +77,7 @@ async function initializeDatabase() {
           model_id UUID REFERENCES models(id),
           printer_id UUID REFERENCES printers(id),
           user_id UUID REFERENCES users(id),
-          filament VARCHAR(100),
+          filament_id UUID REFERENCES filaments(id),
           status VARCHAR(20) CHECK (status IN ('QUEUED','PRINTING','DONE','FAILED','CANCELLED')) DEFAULT 'QUEUED',
           start_time TIMESTAMP,
           estimated_time INTEGER,

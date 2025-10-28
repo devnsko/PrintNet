@@ -31,6 +31,7 @@ router.get('/printers/:id', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 // Create
 router.post('/printers', async (req: Request, res: Response) => {
   const body = (req.body || {}) as {
