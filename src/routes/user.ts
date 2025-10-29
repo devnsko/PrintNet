@@ -4,21 +4,22 @@ import pool from '../db';
 const router = Router();
 
 router.get('/auth/me', async (req: Request, res: Response) => {
-    if (!req.auth) return res.status(401).json({ error: 'Missing Authorization header' });
-    const auth_id = req.auth.id;
-    const me = await pool.query('SELECT * FROM users WHERE auth_id = $1', [auth_id]);
-
-    if (me.rows.length === 0) {
-        const newProfile = await pool.query(`
-            INSERT INTO users (auth_id, nickname)
-            SELECT a.id, a.nickname
-            FROM auth a
-            WHERE a.id = $1
-            RETURNING *
-        `, [auth_id]);
-        return res.status(201).json(newProfile.rows[0]);
+    if (!req.auth || typeof req.auth.id !== "string") {
+        return res.status(401).json({ error: "Invalid or missing authentication" });
     }
-    return res.status(200).json(me.rows[0]);
+
+    const auth_id = req.auth.id;
+
+    const result = await pool.query(`
+    INSERT INTO users (auth_id, nickname)
+    VALUES ($1, (SELECT nickname FROM auth WHERE id = $1))
+    ON CONFLICT (auth_id)
+    DO UPDATE SET nickname = EXCLUDED.nickname
+    RETURNING id, nickname, role;
+    `, [auth_id]);
+
+    return res.status(200).json(result.rows[0]);
+
 });
 
 router.get('/users/:id', async (req: Request, res: Response) => {

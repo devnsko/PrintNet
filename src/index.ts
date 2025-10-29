@@ -19,7 +19,8 @@ app.use(express.json());
 // Enable CORS
 app.use(
   cors({
-    origin: 'http://localhost:3000', // your Next.js frontend
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000', // your Next.js frontend
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
