@@ -1,5 +1,10 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
+import PrinterAdapter from '../printers/PrinterAdapter';
+import OctoprintClient from '../printers/OctoprintClient';
+import MockOctoprintClient from '../printers/MockOctoprintClient';
+import MockLanClient from '../printers/MockLanClient';
+import MockTroubleClient from '../printers/MockTroubleClient';
 
 const router = Router();
 
@@ -32,38 +37,77 @@ router.get('/printers/:id', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/printers/:id/test-connection', async (req: Request, res: Response) => {
+  const id = req.params.id as string;
+  const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+  if (!uuidRegex.test(id)) return res.status(400).json({ error: 'Invalid id (must be UUID)' });
+
+  try {
+    const result = await pool.query('SELECT * FROM printers WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    // Simulate a connection test (replace with real logic as needed)
+    const printer = result.rows[0];
+    let printerAdapter: PrinterAdapter;
+    switch (printer.interface) {
+      case 'OCTOPRINT':
+      printerAdapter = new MockOctoprintClient(printer);
+      break;
+      case 'LAN':
+      printerAdapter = new MockLanClient(printer);
+      break;
+      case 'TROUBLES':
+      printerAdapter = new MockTroubleClient(printer);
+      break;
+      default:
+      return res.status(400).json({ error: `Unsupported interface: ${printer.interface}` });
+    }
+
+    console.log(`Testing connection to printer ${printer.name} (${printer.id})`);
+
+    const { success, status, error } = await printerAdapter.testConnection();
+
+    if (error) {
+      console.error('Connection test failed:', error);
+      return res.status(500).json({ error: 'Connection test failed' });
+    } else {
+      const updatedPrinter = await pool.query(
+        'UPDATE printers SET status = $1, last_updated = NOW() WHERE id = $2 RETURNING *',
+        [status, id]
+      );
+      console.log(`Updated printer ${updatedPrinter.rows[0].name} (${updatedPrinter.rows[0].id}) status to ${status}`);
+    }
+
+    res.json({ success, status });
+  } catch (error) {
+    console.error('Error testing printer connection:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Create
 router.post('/printers', async (req: Request, res: Response) => {
   const body = (req.body || {}) as {
     name?: string;
     model?: string | null;
-    status?: string;
-    is_active?: boolean;
-    current_job_id?: string | null;
-    queue_id?: string | null;
+    interface?: 'LAN' | 'OCTOPRINT' | 'TROUBLES';
   };
 
   const { name } = body;
   if (!name) return res.status(400).json({ error: 'Missing name' });
 
   const model = body.model ?? null;
-  const status = body.status ?? 'IDLE';
-  const is_active = body.is_active ?? true;
-  const current_job_id = body.current_job_id ?? null;
-  const queue_id = body.queue_id ?? null;
-
-  const allowedStatuses = ['IDLE', 'PRINTING', 'ERROR', 'OFFLINE'];
-  if (!allowedStatuses.includes(status)) {
-    return res.status(400).json({ error: `Invalid status. Allowed: ${allowedStatuses.join(', ')}` });
-  }
+  const interfaceType = body.interface ?? 'OCTOPRINT';
 
   try {
     const newPrinter = await pool.query(
       `INSERT INTO printers
-        (name, model, status, is_active, current_job_id, queue_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
+        (name, model, interface)
+       VALUES ($1, $2, $3)
        RETURNING *`,
-      [name, model, status, is_active, current_job_id, queue_id]
+      [name, model, interfaceType]
     );
 
     const newQueue = await pool.query(
@@ -79,6 +123,37 @@ router.post('/printers', async (req: Request, res: Response) => {
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating printer:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/printers/:id/status', async (req: Request, res: Response) => {
+  const id = req.params.id as string;
+  const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+  if (!uuidRegex.test(id)) return res.status(400).json({ error: 'Invalid id (must be UUID)' });
+
+  const body = (req.body || {}) as {
+    status?: string;
+  };
+
+  const { status } = body;
+  const allowedStatuses = ['IDLE', 'READY', 'PRINTING', 'ERROR', 'OFFLINE'];
+  if (!status || !allowedStatuses.includes(status)) {
+    return res.status(400).json({ error: `Invalid or missing status. Allowed: ${allowedStatuses.join(', ')}` });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE printers SET status = $1, last_updated = NOW() WHERE id = $2 RETURNING *`,
+      [status, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating printer status:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

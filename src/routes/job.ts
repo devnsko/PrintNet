@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
+import { getUserByAuth } from './user';
 
 const router = Router();
 
@@ -72,13 +73,20 @@ router.post('/printers/:id/queue/add', async (req: Request, res: Response) => {
     const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
     
     const body = (req.body || {}) as {
+        name?: string | null;
         model_id?: string;
-        user_id?: string;
-        filament?: string | null;
-        estimated_time?: number | null;
+        filament_material?: string | null;
+        filament_color?: string | null;
+        scheduled_time?: string | null; // expect ISO datetime string from frontend
     };
 
-    const { model_id, user_id } = body;
+    const auth_id = req.auth?.id as string;
+
+
+    const user = await getUserByAuth(auth_id);
+    const user_id = user?.id || null;
+
+    const { model_id } = body;
 
     if (!model_id || !printer_id || !user_id) {
         return res.status(400).json({ error: 'Missing required fields: model_id, printer_id, user_id' });
@@ -87,20 +95,66 @@ router.post('/printers/:id/queue/add', async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'model_id, printer_id and user_id must be valid UUIDs' });
     }
 
-    const filament = body.filament ?? null;
-    const estimated_time = body.estimated_time ?? null;
-    if (estimated_time !== null && typeof estimated_time !== 'number') {
-        return res.status(400).json({ error: 'estimated_time must be a number' });
+    const filament_material = body.filament_material ?? null;
+    const filament_color = body.filament_color ?? null;
+    const scheduled_time = body.scheduled_time ?? null;
+    if (scheduled_time !== null) {
+        // Expect ISO 8601 datetime string from frontend, e.g. "2025-10-30T12:34:56Z"
+        const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+\-]\d{2}:\d{2})$/;
+        if (typeof scheduled_time !== 'string' || !isoRegex.test(scheduled_time)) {
+            return res.status(400).json({ error: 'scheduled_time must be a valid ISO 8601 datetime string' });
+        }
     }
+
+    const jobName = body.name ?? null;
 
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
+        // Insert the filament if not exist in table filaments
+        let filamentId: string | null = null;
+        if (filament_material) {
+            const filament = filament_material;
+
+            let insertFilament = await client.query(
+                `INSERT INTO filaments (material, color)
+                 SELECT $1, $2
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM filaments WHERE material = $1 AND (color IS NOT DISTINCT FROM $2)
+                 )
+                 RETURNING id`,
+                [filament_material, filament_color]
+            );
+
+            // If nothing was inserted, fetch existing id (handle NULL color correctly)
+            if (insertFilament.rows.length === 0) {
+                const existing = await client.query(
+                    `SELECT id FROM filaments WHERE material = $1 AND (color IS NOT DISTINCT FROM $2) LIMIT 1`,
+                    [filament_material, filament_color]
+                );
+                insertFilament = existing;
+            }
+            filamentId = insertFilament.rows[0]?.id ?? null;
+            if (!filamentId) {
+                const existing = await client.query(
+                    `SELECT id FROM filaments WHERE material = $1`,
+                    [filament]
+                );
+                filamentId = existing.rows[0]?.id ?? null;
+            }
+            if (filamentId) {
+                console.log('Inserted or found filament with id:', filamentId);
+            }
+        } else {
+            filamentId = null;
+        }
         const insertJob = await client.query(
-            `INSERT INTO jobs (model_id, printer_id, user_id, filament, estimated_time)
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [model_id, printer_id, user_id, filament, estimated_time]
+          `INSERT INTO jobs (name, model_id, printer_id, user_id, filament_id, scheduled_time, status)
+           VALUES ($1, $2, $3, $4, $5, $6::timestamp,
+               CASE WHEN $6 IS NOT NULL THEN 'SCHEDULED' ELSE 'QUEUED' END)
+           RETURNING *`,
+          [jobName, model_id, printer_id, user_id, filamentId, scheduled_time]
         );
         const job = insertJob.rows[0];
 

@@ -36,7 +36,9 @@ async function initializeDatabase() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS models (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          key TEXT UNIQUE NOT NULL,
           name VARCHAR(100),
+          content_type TEXT NOT NULL,
           file_url TEXT NOT NULL,
           author_id UUID REFERENCES users(id),
           size_mb FLOAT,
@@ -62,7 +64,8 @@ async function initializeDatabase() {
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           name VARCHAR(100),
           model VARCHAR(100),
-          status VARCHAR(20) CHECK (status IN ('IDLE','PRINTING','ERROR','OFFLINE')) DEFAULT 'IDLE',
+          interface VARCHAR(100) CHECK (interface IN ('LAN', 'OCTOPRINT', 'TROUBLES')) DEFAULT 'OCTOPRINT',
+          status VARCHAR(20) CHECK (status IN ('IDLE', 'READY', 'PRINTING','ERROR','OFFLINE', 'DISCONNECTED')) DEFAULT 'DISCONNECTED',
           is_active BOOLEAN DEFAULT TRUE,
           current_job_id UUID,
           queue_id UUID,
@@ -70,16 +73,31 @@ async function initializeDatabase() {
       );
     `);
 
+    // TODO: printer connections table?
+    // await client.query(`
+    //   CREATE TABLE IF NOT EXISTS printer_connections (
+    //       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    //       printer_id UUID REFERENCES printers(id),
+    //       type VARCHAR(50) CHECK (type IN ('LAN', 'OCTOPRINT')),
+    //       ip_address VARCHAR(45),
+    //       port INTEGER,
+    //       api_key TEXT,
+    //       created_at TIMESTAMP DEFAULT NOW()
+    //   );`);
+
     // Jobs (references models, printers, users)
     await client.query(`
       CREATE TABLE IF NOT EXISTS jobs (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name VARCHAR(100),
           model_id UUID REFERENCES models(id),
           printer_id UUID REFERENCES printers(id),
           user_id UUID REFERENCES users(id),
           filament_id UUID REFERENCES filaments(id),
-          status VARCHAR(20) CHECK (status IN ('QUEUED','PRINTING','DONE','FAILED','CANCELLED')) DEFAULT 'QUEUED',
+          status VARCHAR(20) CHECK (status IN ('QUEUED', 'SCHEDULED', 'PRINTING', 'DONE', 'FAILED', 'CANCELLED')) DEFAULT 'QUEUED',
           start_time TIMESTAMP,
+          end_time TIMESTAMP,
+          scheduled_time TIMESTAMP,
           estimated_time INTEGER,
           created_at TIMESTAMP DEFAULT NOW(),
           progress FLOAT DEFAULT 0

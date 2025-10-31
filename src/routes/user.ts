@@ -8,16 +8,17 @@ router.get('/auth/me', async (req: Request, res: Response) => {
         return res.status(401).json({ error: "Invalid or missing authentication" });
     }
 
-    const auth_id = req.auth.id;
+    const auth_id = req.auth.id as string; // fixed param name
+    const uuidRegex = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+    if (!uuidRegex.test(auth_id)) return res.status(400).json({ error: 'Invalid user id (must be UUID)' });
 
     const result = await pool.query(`
     INSERT INTO users (auth_id, nickname)
-    VALUES ($1, (SELECT nickname FROM auth WHERE id = $1))
+    VALUES ($1::text, (SELECT nickname FROM auth WHERE id = $1::uuid))
     ON CONFLICT (auth_id)
     DO UPDATE SET nickname = EXCLUDED.nickname
     RETURNING id, nickname, role;
     `, [auth_id]);
-
     return res.status(200).json(result.rows[0]);
 
 });

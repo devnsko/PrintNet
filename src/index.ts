@@ -6,17 +6,15 @@ import queueRouter from './routes/queue';
 import modelRouter from './routes/model'
 import authRouter from './routes/auth';
 import userRouter from './routes/user';
+import uploadRouter from './routes/upload';
 import initializeDatabase from './db/init';
-import { requireAuth } from './middlewares/authMiddleware';
+import { mockAuth, requireAuth } from './middlewares/authMiddleware';
 import cookieParser from 'cookie-parser';
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-app.use(cookieParser());
-app.use(express.json());
 
-// Enable CORS
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:3000', // your Next.js frontend
@@ -25,6 +23,8 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
+app.use(express.json());
+app.use(cookieParser());
 
 
 app.get('/', (req, res) => {
@@ -32,11 +32,12 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/auth', authRouter);
-app.use('/api', requireAuth, userRouter);
-app.use('/api', requireAuth, printerRouter);
-app.use('/api', requireAuth, modelRouter);
-app.use('/api', requireAuth, jobRouter);
-app.use('/api', requireAuth, queueRouter);
+app.use('/api', mockAuth, userRouter);
+app.use('/api', mockAuth, printerRouter);
+app.use('/api', mockAuth, modelRouter);
+app.use('/api', mockAuth, jobRouter);
+app.use('/api', mockAuth, queueRouter);
+app.use('/api', mockAuth, uploadRouter);
 
 async function startServer() {
   try {

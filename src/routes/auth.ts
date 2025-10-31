@@ -30,7 +30,7 @@ router.post('/register', async (req: Request, res: Response) => {
             `INSERT INTO auth (email, password_hash, nickname)
              VALUES ($1, $2, $3)
              RETURNING id, email, nickname, created_at`,
-            [email, passwordHash, nickname || null]
+            [email, passwordHash, nickname || email.split('@')[0]]
         );
 
         const auth = result.rows[0];
@@ -70,11 +70,12 @@ router.post('/login', async (req: Request, res: Response) => {
         }
 
         const token = jwt.sign({ id: auth.id, email: auth.email, nickname: auth.nickname }, JWT_SECRET, { expiresIn: '7d' });
-
+        
         res
         .cookie('printnettoken', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            // secure: process.env.NODE_ENV === 'production',
+            secure: false,
             sameSite: 'none', // lax
             maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         })
@@ -86,5 +87,12 @@ router.post('/login', async (req: Request, res: Response) => {
         client.release();
     }
 });
+
+
+router.post('/logout', async (req: Request, res: Response) => {
+  res.clearCookie('printnettoken');
+  res.json({ message: 'Logged out' });
+});
+
 
 export default router;
